@@ -2,98 +2,124 @@ import streamlit as st
 import requests
 import pandas as pd
 
+# ---- APP SETUP ----
 st.set_page_config(page_title="Churn Predictor", layout="centered")
 st.title("📊 Customer Churn Prediction")
-st.markdown("Choose input method:")
+st.markdown("Upload customer data below or manually enter values to predict churn.")
 
-# Dropdown to toggle mode
-mode = st.radio("Select Input Method", ["Manual Input", "Upload CSV"])
+# ---- RAW TO PROCESSED TRANSFORMATION ----
+def preprocess_raw(df):
+    # Example transformations — match these with how your training data was preprocessed
+    df['gender'] = df['gender'].map({'Male': 0, 'Female': 1})
+    df['Partner'] = df['Partner'].map({'Yes': 1, 'No': 0})
+    df['Dependents'] = df['Dependents'].map({'Yes': 1, 'No': 0})
+    df['PhoneService'] = df['PhoneService'].map({'Yes': 1, 'No': 0})
+    df['PaperlessBilling'] = df['PaperlessBilling'].map({'Yes': 1, 'No': 0})
+    df['MultipleLines_Yes'] = df['MultipleLines'].map({'Yes': 1, 'No': 0})
+    df['InternetService_Fiber optic'] = df['InternetService'].map(lambda x: 1 if x == 'Fiber optic' else 0)
+    df['InternetService_No'] = df['InternetService'].map(lambda x: 1 if x == 'No' else 0)
 
-# Common FastAPI URL
-API_URL = "http://127.0.0.1:8000/predict"
+    # One-hot for PaymentMethod
+    df['PaymentMethod_Credit card (automatic)'] = df['PaymentMethod'].apply(lambda x: 1 if x == 'Credit card (automatic)' else 0)
+    df['PaymentMethod_Electronic check'] = df['PaymentMethod'].apply(lambda x: 1 if x == 'Electronic check' else 0)
+    df['PaymentMethod_Mailed check'] = df['PaymentMethod'].apply(lambda x: 1 if x == 'Mailed check' else 0)
 
-# ----------------------------
-# 🔹 Manual Form Input
-# ----------------------------
-if mode == "Manual Input":
-    with st.form("churn_form"):
-        gender = st.selectbox("Gender", ["Male", "Female"])
-        senior = st.selectbox("Senior Citizen", [0, 1])
-        partner = st.selectbox("Partner", ["Yes", "No"])
-        dependents = st.selectbox("Dependents", ["Yes", "No"])
-        tenure = st.number_input("Tenure (months)", min_value=0, max_value=100)
-        monthly = st.number_input("Monthly Charges", min_value=0.0)
-        total = st.number_input("Total Charges", min_value=0.0)
-        paperless = st.selectbox("Paperless Billing", ["Yes", "No"])
-        phone = st.selectbox("Phone Service", ["Yes", "No"])
-        multiple = st.selectbox("Multiple Lines", ["Yes", "No"])
-        fiber = st.selectbox("Internet Service - Fiber optic", [1, 0])
-        no_internet = st.selectbox("Internet Service - No", [0, 1])
-        credit = st.selectbox("PaymentMethod: Credit Card (auto)", [1, 0])
-        electronic = st.selectbox("PaymentMethod: Electronic Check", [1, 0])
-        mailed = st.selectbox("PaymentMethod: Mailed Check", [1, 0])
-        tenure_group_mid = st.selectbox("TenureGroup_Mid", [0, 1])
-        charge_ratio = st.number_input("Charge Ratio", min_value=0.0)
-        senior_fiber = st.selectbox("Senior_Fiber", [0, 1])
-        high_risk = st.selectbox("HighRisk", [0, 1])
+    # Derived Features
+    df['TenureGroup_Mid'] = df['tenure'].apply(lambda x: 1 if 12 <= x <= 36 else 0)
+    df['ChargeRatio'] = df['MonthlyCharges'] / (df['TotalCharges'] + 1)
+    df['Senior_Fiber'] = df['SeniorCitizen'] * df['InternetService_Fiber optic']
+    df['HighRisk'] = (df['MonthlyCharges'] > 80).astype(int)
 
-        submit = st.form_submit_button("Predict")
+    features = [
+        'gender', 'SeniorCitizen', 'Partner', 'Dependents', 'tenure',
+        'PhoneService', 'PaperlessBilling', 'MonthlyCharges', 'TotalCharges',
+        'MultipleLines_Yes', 'InternetService_Fiber optic', 'InternetService_No',
+        'PaymentMethod_Credit card (automatic)', 'PaymentMethod_Electronic check',
+        'PaymentMethod_Mailed check', 'TenureGroup_Mid', 'ChargeRatio',
+        'Senior_Fiber', 'HighRisk'
+    ]
+    return df[features]
 
-    if submit:
-        feature_list = [
-            gender, senior, partner, dependents, tenure, phone, paperless,
-            monthly, total, multiple, fiber, no_internet, credit, electronic,
-            mailed, tenure_group_mid, charge_ratio, senior_fiber, high_risk
-        ]
 
-        mapping = {"Male": 0, "Female": 1, "Yes": 1, "No": 0}
-        features = [mapping.get(v, v) for v in feature_list]
+# ---- FILE UPLOAD HANDLING ----
+st.header("📤 Upload Data for Bulk Prediction")
 
+input_type = st.radio("Choose input type:", ["Raw CSV", "Preprocessed CSV"])
+csv_file = st.file_uploader("Upload CSV file", type=["csv"])
+
+if csv_file:
+    df = pd.read_csv(csv_file)
+    st.write("📄 Uploaded Data Preview:", df.head())
+
+    if input_type == "Raw CSV":
         try:
-            response = requests.post(API_URL, json={"features": features})
-            if response.status_code == 200:
-                pred = response.json()["churn_probability"]
-                st.success(f"📉 Churn Probability: **{pred:.2%}**")
-            else:
-                st.error("Prediction failed. Check server or input format.")
+            df_processed = preprocess_raw(df.copy())
+            st.success("✅ Raw data successfully preprocessed.")
         except Exception as e:
-            st.error(f"Server error: {e}")
+            st.error(f"Error in preprocessing: {e}")
+            st.stop()
+    else:
+        df_processed = df.copy()
 
-# ----------------------------
-# 🔹 CSV Upload
-# ----------------------------
-else:
-    st.markdown("Upload a **preprocessed CSV** file (with same 19 features):")
-    uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
+    try:
+        # Send to FastAPI
+        predictions = []
+        for _, row in df_processed.iterrows():
+            res = requests.post("http://127.0.0.1:8000/predict", json={"features": row.tolist()})
+            if res.status_code == 200:
+                predictions.append(res.json()["churn_probability"])
+            else:
+                predictions.append(None)
 
-    if uploaded_file is not None:
-        df = pd.read_csv(uploaded_file)
-        st.write("### Preview", df.head())
+        df["Churn Probability"] = predictions
+        st.write("🔮 Predictions:", df)
+        st.download_button("📥 Download Predictions", df.to_csv(index=False), "churn_predictions.csv", "text/csv")
 
-        if st.button("Predict for All Rows"):
-            try:
-                results = []
-                for i, row in df.iterrows():
-                    row_data = row.tolist()
-                    response = requests.post(API_URL, json={"features": row_data})
-                    if response.status_code == 200:
-                        prob = response.json()["churn_probability"]
-                    else:
-                        prob = None
-                    results.append(prob)
+    except Exception as e:
+        st.error(f"Failed to connect to prediction API: {e}")
 
-                df["Churn Probability"] = results
-                st.success("✅ Predictions complete!")
-                st.write(df)
+st.divider()
 
-                # Allow CSV download
-                csv = df.to_csv(index=False).encode("utf-8")
-                st.download_button(
-                    label="📥 Download Results",
-                    data=csv,
-                    file_name="churn_predictions.csv",
-                    mime="text/csv"
-                )
+# ---- MANUAL INPUT SECTION ----
+st.subheader("📝 Or Enter Customer Info Manually")
 
-            except Exception as e:
-                st.error(f"Error during prediction: {e}")
+with st.form("churn_form"):
+    gender = st.selectbox("Gender", ["Male", "Female"])
+    senior = st.selectbox("Senior Citizen", [0, 1])
+    partner = st.selectbox("Partner", ["Yes", "No"])
+    dependents = st.selectbox("Dependents", ["Yes", "No"])
+    tenure = st.number_input("Tenure (months)", min_value=0, max_value=100)
+    monthly = st.number_input("Monthly Charges", min_value=0.0)
+    total = st.number_input("Total Charges", min_value=0.0)
+    paperless = st.selectbox("Paperless Billing", ["Yes", "No"])
+    phone = st.selectbox("Phone Service", ["Yes", "No"])
+    multiple = st.selectbox("Multiple Lines", ["Yes", "No"])
+    fiber = st.selectbox("Internet Service - Fiber optic", [1, 0])
+    no_internet = st.selectbox("Internet Service - No", [0, 1])
+    credit = st.selectbox("PaymentMethod: Credit Card (auto)", [1, 0])
+    electronic = st.selectbox("PaymentMethod: Electronic Check", [1, 0])
+    mailed = st.selectbox("PaymentMethod: Mailed Check", [1, 0])
+    tenure_group_mid = st.selectbox("TenureGroup_Mid", [0, 1])
+    charge_ratio = st.number_input("Charge Ratio", min_value=0.0)
+    senior_fiber = st.selectbox("Senior_Fiber", [0, 1])
+    high_risk = st.selectbox("HighRisk", [0, 1])
+    submit = st.form_submit_button("Predict")
+
+if submit:
+    mapping = {"Male": 0, "Female": 1, "Yes": 1, "No": 0}
+    features = [
+        mapping[gender], senior, mapping[partner], mapping[dependents], tenure,
+        mapping[phone], mapping[paperless], monthly, total, mapping[multiple],
+        fiber, no_internet, credit, electronic, mailed, tenure_group_mid,
+        charge_ratio, senior_fiber, high_risk
+    ]
+
+    try:
+        res = requests.post("http://127.0.0.1:8000/predict", json={"features": features})
+        if res.status_code == 200:
+            pred = res.json()["churn_probability"]
+            st.success(f"📉 Churn Probability: **{pred:.2%}**")
+        else:
+            st.error("Prediction failed.")
+    except Exception as e:
+        st.error(f"Error contacting API: {e}")
