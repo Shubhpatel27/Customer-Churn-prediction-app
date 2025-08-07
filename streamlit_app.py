@@ -57,6 +57,10 @@ if csv_file:
     if input_type == "Raw CSV":
         try:
             df_processed = preprocess_raw(df.copy())
+            if df_processed.isnull().any().any():
+                st.warning("⚠️ Some values were missing — filling NaNs with 0.")
+            df_processed = df_processed.fillna(0)
+
             st.success("✅ Raw data successfully preprocessed.")
         except Exception as e:
             st.error(f"Error in preprocessing: {e}")
@@ -67,7 +71,9 @@ if csv_file:
     try:
         predictions = []
         for _, row in df_processed.iterrows():
-            res = requests.post("http://127.0.0.1:8000/predict", json={"features": row.tolist()})
+            row_clean = row.fillna(0).tolist()  # Ensure no NaNs in row
+            res = requests.post("http://127.0.0.1:8000/predict", json={"features": row_clean})
+
             if res.status_code == 200:
                 predictions.append(res.json()["churn_probability"])
             else:
