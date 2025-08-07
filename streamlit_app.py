@@ -9,37 +9,40 @@ st.markdown("Upload customer data below or manually enter values to predict chur
 
 # ---- RAW TO PROCESSED TRANSFORMATION ----
 def preprocess_raw(df):
-    # Example transformations — match these with how your training data was preprocessed
-    df['gender'] = df['gender'].map({'Male': 0, 'Female': 1})
-    df['Partner'] = df['Partner'].map({'Yes': 1, 'No': 0})
-    df['Dependents'] = df['Dependents'].map({'Yes': 1, 'No': 0})
-    df['PhoneService'] = df['PhoneService'].map({'Yes': 1, 'No': 0})
-    df['PaperlessBilling'] = df['PaperlessBilling'].map({'Yes': 1, 'No': 0})
-    df['MultipleLines_Yes'] = df['MultipleLines'].map({'Yes': 1, 'No': 0})
-    df['InternetService_Fiber optic'] = df['InternetService'].map(lambda x: 1 if x == 'Fiber optic' else 0)
-    df['InternetService_No'] = df['InternetService'].map(lambda x: 1 if x == 'No' else 0)
+    try:
+        # Type casting to avoid string-int concat issues
+        df['TotalCharges'] = pd.to_numeric(df['TotalCharges'], errors='coerce').fillna(0)
+        df['MonthlyCharges'] = pd.to_numeric(df['MonthlyCharges'], errors='coerce').fillna(0)
 
-    # One-hot for PaymentMethod
-    df['PaymentMethod_Credit card (automatic)'] = df['PaymentMethod'].apply(lambda x: 1 if x == 'Credit card (automatic)' else 0)
-    df['PaymentMethod_Electronic check'] = df['PaymentMethod'].apply(lambda x: 1 if x == 'Electronic check' else 0)
-    df['PaymentMethod_Mailed check'] = df['PaymentMethod'].apply(lambda x: 1 if x == 'Mailed check' else 0)
+        df['gender'] = df['gender'].map({'Male': 0, 'Female': 1})
+        df['Partner'] = df['Partner'].map({'Yes': 1, 'No': 0})
+        df['Dependents'] = df['Dependents'].map({'Yes': 1, 'No': 0})
+        df['PhoneService'] = df['PhoneService'].map({'Yes': 1, 'No': 0})
+        df['PaperlessBilling'] = df['PaperlessBilling'].map({'Yes': 1, 'No': 0})
+        df['MultipleLines_Yes'] = df['MultipleLines'].map({'Yes': 1, 'No': 0})
+        df['InternetService_Fiber optic'] = df['InternetService'].map(lambda x: 1 if x == 'Fiber optic' else 0)
+        df['InternetService_No'] = df['InternetService'].map(lambda x: 1 if x == 'No' else 0)
 
-    # Derived Features
-    df['TenureGroup_Mid'] = df['tenure'].apply(lambda x: 1 if 12 <= x <= 36 else 0)
-    df['ChargeRatio'] = df['MonthlyCharges'] / (df['TotalCharges'] + 1)
-    df['Senior_Fiber'] = df['SeniorCitizen'] * df['InternetService_Fiber optic']
-    df['HighRisk'] = (df['MonthlyCharges'] > 80).astype(int)
+        df['PaymentMethod_Credit card (automatic)'] = df['PaymentMethod'].apply(lambda x: 1 if x == 'Credit card (automatic)' else 0)
+        df['PaymentMethod_Electronic check'] = df['PaymentMethod'].apply(lambda x: 1 if x == 'Electronic check' else 0)
+        df['PaymentMethod_Mailed check'] = df['PaymentMethod'].apply(lambda x: 1 if x == 'Mailed check' else 0)
 
-    features = [
-        'gender', 'SeniorCitizen', 'Partner', 'Dependents', 'tenure',
-        'PhoneService', 'PaperlessBilling', 'MonthlyCharges', 'TotalCharges',
-        'MultipleLines_Yes', 'InternetService_Fiber optic', 'InternetService_No',
-        'PaymentMethod_Credit card (automatic)', 'PaymentMethod_Electronic check',
-        'PaymentMethod_Mailed check', 'TenureGroup_Mid', 'ChargeRatio',
-        'Senior_Fiber', 'HighRisk'
-    ]
-    return df[features]
+        df['TenureGroup_Mid'] = df['tenure'].apply(lambda x: 1 if 12 <= x <= 36 else 0)
+        df['ChargeRatio'] = df['MonthlyCharges'] / (df['TotalCharges'] + 1)
+        df['Senior_Fiber'] = df['SeniorCitizen'] * df['InternetService_Fiber optic']
+        df['HighRisk'] = (df['MonthlyCharges'] > 80).astype(int)
 
+        features = [
+            'gender', 'SeniorCitizen', 'Partner', 'Dependents', 'tenure',
+            'PhoneService', 'PaperlessBilling', 'MonthlyCharges', 'TotalCharges',
+            'MultipleLines_Yes', 'InternetService_Fiber optic', 'InternetService_No',
+            'PaymentMethod_Credit card (automatic)', 'PaymentMethod_Electronic check',
+            'PaymentMethod_Mailed check', 'TenureGroup_Mid', 'ChargeRatio',
+            'Senior_Fiber', 'HighRisk'
+        ]
+        return df[features]
+    except Exception as e:
+        raise ValueError(f"Preprocessing error: {e}")
 
 # ---- FILE UPLOAD HANDLING ----
 st.header("📤 Upload Data for Bulk Prediction")
@@ -62,7 +65,6 @@ if csv_file:
         df_processed = df.copy()
 
     try:
-        # Send to FastAPI
         predictions = []
         for _, row in df_processed.iterrows():
             res = requests.post("http://127.0.0.1:8000/predict", json={"features": row.tolist()})
