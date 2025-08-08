@@ -2,6 +2,13 @@ import streamlit as st
 import requests
 import pandas as pd
 
+# Load model once at startup
+@st.cache_resource
+def load_model():
+    return joblib.load("churn_model.pkl")
+
+model = load_model()
+
 # ---- APP SETUP ----
 st.set_page_config(page_title="Churn Predictor", layout="centered")
 st.title("📊 Customer Churn Prediction")
@@ -123,11 +130,13 @@ if submit:
     ]
 
     try:
-        res = requests.post("http://127.0.0.1:8000/predict", json={"features": features})
-        if res.status_code == 200:
-            pred = res.json()["churn_probability"]
-            st.success(f"📉 Churn Probability: **{pred:.2%}**")
+        #res = requests.post("http://127.0.0.1:8000/predict", json={"features": features})
+        #if res.status_code == 200:
+           # pred = res.json()["churn_probability"]
+            #st.success(f"📉 Churn Probability: **{pred:.2%}**")
+        if preds = model.predict(df)
         else:
             st.error("Prediction failed.")
     except Exception as e:
         st.error(f"Error contacting API: {e}")
+
