@@ -134,11 +134,12 @@ if submit:
         #if res.status_code == 200:
            # pred = res.json()["churn_probability"]
             #st.success(f"📉 Churn Probability: **{pred:.2%}**")
-        if preds ==: model.predict(df)
+        if preds = model.predict(df)
         else:
             st.error("Prediction failed.")
     except Exception as e:
         st.error(f"Error contacting API: {e}")
+
 
 
 
